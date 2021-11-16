@@ -199,7 +199,7 @@ void SLIC::DetectLabEdges(
 	int sz = width*height;
 
 	edges.resize(sz,0);
-	//#pragma omp parallel for collapse(2) 
+	#pragma omp parallel for collapse(2) 
 	for( int j = 1; j < height-1; j++ )
 	{
 		for( int k = 1; k < width-1; k++ )
