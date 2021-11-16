@@ -168,7 +168,7 @@ void SLIC::DoRGBtoLABConversion(
 	lvec = new double[sz];
 	avec = new double[sz];
 	bvec = new double[sz];
-	printf("sz=%d\n",sz);
+	//printf("sz=%d\n",sz);
 	//auto startTime2 = Clock::now();
 	#pragma omp parallel for num_threads(thread_count)
 	for( int j = 0; j < sz; j++ )
@@ -199,6 +199,7 @@ void SLIC::DetectLabEdges(
 	int sz = width*height;
 
 	edges.resize(sz,0);
+	//#pragma omp parallel for collapse(2) 
 	for( int j = 1; j < height-1; j++ )
 	{
 		for( int k = 1; k < width-1; k++ )
@@ -386,13 +387,14 @@ void SLIC::PerformSuperpixelSegmentation_VariableSandM(
 		//------
 
 		distvec.assign(sz, DBL_MAX);
+
 		for( int n = 0; n < numk; n++ )
 		{
 			int y1 = max(0,			(int)(kseedsy[n]-offset));
 			int y2 = min(m_height,	(int)(kseedsy[n]+offset));
 			int x1 = max(0,			(int)(kseedsx[n]-offset));
 			int x2 = min(m_width,	(int)(kseedsx[n]+offset));
-
+			#pragma omp parallel for collapse(2)
 			for( int y = y1; y < y2; y++ )
 			{	
 			
@@ -433,11 +435,14 @@ void SLIC::PerformSuperpixelSegmentation_VariableSandM(
 			maxlab.assign(numk,1);
 			maxxy.assign(numk,1);
 		}
+		
+		
 		for( int i = 0; i < sz; i++ )
 		{
 			if(maxlab[klabels[i]] < distlab[i]) maxlab[klabels[i]] = distlab[i];
 			if(maxxy[klabels[i]] < distxy[i]) maxxy[klabels[i]] = distxy[i];
 		}
+		
 		//-----------------------------------------------------------------
 		// Recalculate the centroid and store in the seed values
 		//-----------------------------------------------------------------
@@ -447,21 +452,24 @@ void SLIC::PerformSuperpixelSegmentation_VariableSandM(
 		sigmax.assign(numk, 0);
 		sigmay.assign(numk, 0);
 		clustersize.assign(numk, 0);
+		
 		auto startTime1 = Clock::now();
 		//#pragma omp parallel for
 		for( int j = 0; j < sz; j++ )
 		{
 			int temp = klabels[j];
 			//_ASSERT(klabels[j] >= 0);
-			sigmal[klabels[j]] += m_lvec[j];
-			sigmaa[klabels[j]] += m_avec[j];
-			sigmab[klabels[j]] += m_bvec[j];
-			sigmax[klabels[j]] += (j%m_width);
-			sigmay[klabels[j]] += (j/m_width);
-
-			clustersize[klabels[j]]++;
+			sigmal[temp] += m_lvec[j];
+			sigmaa[temp] += m_avec[j];
+			sigmab[temp] += m_bvec[j];
+			sigmax[temp] += (j%m_width);
+			sigmay[temp] += (j/m_width);
+			
+			clustersize[temp]++;
 		}
-
+		// auto endTime1 = Clock::now();
+ 		// auto compTime1 = chrono::duration_cast<chrono::microseconds>(endTime1 - startTime1);
+		// cout << "2for Computing time=" << compTime1.count()/1000 << " ms" << endl;
 		{for( int k = 0; k < numk; k++ )
 		{
 			//_ASSERT(clustersize[k] > 0);
@@ -553,6 +561,7 @@ void SLIC::EnforceLabelConnectivity(
 	int* yvec = new int[sz];
 	int oindex(0);
 	int adjlabel(0);//adjacent label
+	
 	for( int j = 0; j < height; j++ )
 	{
 		for( int k = 0; k < width; k++ )
@@ -653,7 +662,10 @@ void SLIC::PerformSLICO_ForGivenK(
 	int sz = m_width*m_height;
 	//--------------------------------------------------
 	//if(0 == klabels) klabels = new int[sz];
+
+	#pragma omp parallel for
 	for( int s = 0; s < sz; s++ ) klabels[s] = -1;
+	
 	//--------------------------------------------------
 	if(1)//LAB
 	{
@@ -661,7 +673,7 @@ void SLIC::PerformSLICO_ForGivenK(
 		DoRGBtoLABConversion(ubuff, m_lvec, m_avec, m_bvec,thread_count);
 		auto endTime = Clock::now();
 		auto compTime = chrono::duration_cast<chrono::microseconds>(endTime - startTime);
- 		cout << "DoRGBtoLABConversion(ubuff, m_lvec, m_avec, m_bvec); Computing time=" << compTime.count()/1000 << " ms" << endl;
+ 		cout << "DoRGBtoLABConversion Computing time=" << compTime.count()/1000 << " ms" << endl;
 	}
 	else//RGB
 	{
@@ -681,7 +693,7 @@ void SLIC::PerformSLICO_ForGivenK(
 	if(perturbseeds) DetectLabEdges(m_lvec, m_avec, m_bvec, m_width, m_height, edgemag);
 	auto endTime = Clock::now();
  	auto compTime = chrono::duration_cast<chrono::microseconds>(endTime - startTime);
-	cout << "DetectLabEdges(m_lvec, m_avec, m_bvec, m_width, m_height, edgemag); Computing time=" << compTime.count()/1000 << " ms" << endl;
+	cout << "DetectLabEdges Computing time=" << compTime.count()/1000 << " ms" << endl;
 	auto startTime1 = Clock::now();
 	GetLABXYSeeds_ForGivenK(kseedsl, kseedsa, kseedsb, kseedsx, kseedsy, K, perturbseeds, edgemag);
 	auto endTime1 = Clock::now();
@@ -702,7 +714,8 @@ void SLIC::PerformSLICO_ForGivenK(
 	auto endTime3 = Clock::now();
  	auto compTime3 = chrono::duration_cast<chrono::microseconds>(endTime3 - startTime3);
 	cout << "EnforceLabelConnectivity Computing time=" << compTime3.count()/1000 << " ms" << endl;
-	{for(int i = 0; i < sz; i++ ) klabels[i] = nlabels[i];}
+	#pragma omp parallel for
+	for(int i = 0; i < sz; i++ ) klabels[i] = nlabels[i];
 	if(nlabels) delete [] nlabels;
 }
 
@@ -835,8 +848,8 @@ int main (int argc, char **argv)
 	double m_compactness;
 	m_spcount = 200;
 	m_compactness = 10.0;
-    auto startTime = Clock::now();
 	int thread_count=strtol(argv[1],NULL,10);
+    auto startTime = Clock::now();
 	slic.PerformSLICO_ForGivenK(img, width, height, labels, numlabels, m_spcount, m_compactness,thread_count);//for a given number K of superpixels
     auto endTime = Clock::now();
     auto compTime = chrono::duration_cast<chrono::microseconds>(endTime - startTime);
