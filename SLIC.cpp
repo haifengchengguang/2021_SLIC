@@ -123,8 +123,23 @@ void SLIC::RGB2LAB(const int& sR, const int& sG, const int& sB, double& lval, do
 	// sRGB to XYZ conversion
 	//------------------------
 	double X, Y, Z;
-	RGB2XYZ(sR, sG, sB, X, Y, Z);
+	//RGB2XYZ(sR, sG, sB, X, Y, Z);
+	double R = sR/255.0;
+	double G = sG/255.0;
+	double B = sB/255.0;
 
+	double r1, g1, b1;
+
+	if(R <= 0.04045)	r1 = R/12.92;
+	else				r1 = pow((R+0.055)/1.055,2.4);
+	if(G <= 0.04045)	g1 = G/12.92;
+	else				g1 = pow((G+0.055)/1.055,2.4);
+	if(B <= 0.04045)	b1 = B/12.92;
+	else				b1 = pow((B+0.055)/1.055,2.4);
+
+	X = r1*0.4124564 + g1*0.3575761 + b1*0.1804375;
+	Y = r1*0.2126729 + g1*0.7151522 + b1*0.0721750;
+	Z = r1*0.0193339 + g1*0.1191920 + b1*0.9503041;
 	//------------------------
 	// XYZ to LAB conversion
 	//------------------------
@@ -157,6 +172,7 @@ void SLIC::RGB2LAB(const int& sR, const int& sG, const int& sB, double& lval, do
 ///
 ///	For whole image: overlaoded floating point version
 //===========================================================================
+//减少函数调用
 void SLIC::DoRGBtoLABConversion(
 	const unsigned int*&		ubuff,
 	double*&					lvec,
@@ -177,8 +193,50 @@ void SLIC::DoRGBtoLABConversion(
 		int g = (ubuff[j] >>  8) & 0xFF;
 		int b = (ubuff[j]      ) & 0xFF;
 		
-		RGB2LAB( r, g, b, lvec[j], avec[j], bvec[j] );
-		
+		//RGB2LAB( r, g, b, lvec[j], avec[j], bvec[j] );
+		double X, Y, Z;
+	//RGB2XYZ(sR, sG, sB, X, Y, Z);
+	double R = r/255.0;
+	double G = g/255.0;
+	double B = b/255.0;
+
+	double r1, g1, b1;
+
+	if(R <= 0.04045)	r1 = R/12.92;
+	else				r1 = pow((R+0.055)/1.055,2.4);
+	if(G <= 0.04045)	g1 = G/12.92;
+	else				g1 = pow((G+0.055)/1.055,2.4);
+	if(B <= 0.04045)	b1 = B/12.92;
+	else				b1 = pow((B+0.055)/1.055,2.4);
+
+	X = r1*0.4124564 + g1*0.3575761 + b1*0.1804375;
+	Y = r1*0.2126729 + g1*0.7151522 + b1*0.0721750;
+	Z = r1*0.0193339 + g1*0.1191920 + b1*0.9503041;
+	//------------------------
+	// XYZ to LAB conversion
+	//------------------------
+	double epsilon = 0.008856;	//actual CIE standard
+	double kappa   = 903.3;		//actual CIE standard
+
+	double Xr = 0.950456;	//reference white
+	double Yr = 1.0;		//reference white
+	double Zr = 1.088754;	//reference white
+
+	double xr = X/Xr;
+	double yr = Y/Yr;
+	double zr = Z/Zr;
+
+	double fx, fy, fz;
+	if(xr > epsilon)	fx = cbrt(xr);//pow改为cbrt
+	else				fx = (kappa*xr + 16.0)/116.0;
+	if(yr > epsilon)	fy = cbrt(yr);
+	else				fy = (kappa*yr + 16.0)/116.0;
+	if(zr > epsilon)	fz = cbrt(zr);
+	else				fz = (kappa*zr + 16.0)/116.0;
+
+	lvec[j] = 116.0*fy-16.0;
+	avec[j] = 500.0*(fx-fy);
+	bvec[j] = 200.0*(fy-fz);
 	}
 	// auto endTime2 = Clock::now();
  	// auto compTime2 = chrono::duration_cast<chrono::microseconds>(endTime2 - startTime2);
@@ -394,7 +452,10 @@ void SLIC::PerformSuperpixelSegmentation_VariableSandM(
 			int y2 = min(m_height,	(int)(kseedsy[n]+offset));
 			int x1 = max(0,			(int)(kseedsx[n]-offset));
 			int x2 = min(m_width,	(int)(kseedsx[n]+offset));
+
 			#pragma omp parallel for collapse(2)
+			//sha dou mei gan a
+			//就搞这里，你这节课把它给我跑进1s
 			for( int y = y1; y < y2; y++ )
 			{	
 			
@@ -455,6 +516,9 @@ void SLIC::PerformSuperpixelSegmentation_VariableSandM(
 		
 		auto startTime1 = Clock::now();
 		//#pragma omp parallel for
+		//wei sha bu shishi zhe li 
+		//试了，没弄出来，而且效果也不好，少不了几毫秒（这里直接算了吧，如果每个线程都维护几个和数组代价太大）
+		//那还是得搞上面的
 		for( int j = 0; j < sz; j++ )
 		{
 			int temp = klabels[j];
@@ -477,7 +541,7 @@ void SLIC::PerformSuperpixelSegmentation_VariableSandM(
 			inv[k] = 1.0/double(clustersize[k]);//computing inverse now to multiply, than divide later
 		}}
 
-		{for( int k = 0; k < numk; k++ )
+		{for( int k = 0; k < numk; k++ )//这里可以稍微向量化（不是并行，是向量化）
 		{
 			kseedsl[k] = sigmal[k]*inv[k];
 			kseedsa[k] = sigmaa[k]*inv[k];
